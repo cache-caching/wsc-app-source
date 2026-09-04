@@ -23,6 +23,9 @@ pipeline {
         MAIN_BRANCH = 'main'
 
         MANIFEST_FILE = 'manifests/rollout.yaml'
+
+        IMAGE_PUSHED = 'false'
+        GITOPS_UPDATED = 'false'
     }
 
     stages {
@@ -121,6 +124,10 @@ pipeline {
                     docker push ${DOCKER_IMAGE}
                     '''
                 }
+
+                script {
+                    env.IMAGE_PUSHED = 'true'
+                }
             }
         }
 
@@ -149,6 +156,10 @@ pipeline {
                         fi
                         '''
                     }
+
+                    script {
+                        env.GITOPS_UPDATED = 'true'
+                    }
                 }
             }
         }
@@ -157,6 +168,18 @@ pipeline {
     post {
         success {
             echo "Image pushed and GitOps manifest updated: ${env.DOCKER_IMAGE}"
+        }
+
+        failure {
+            script {
+                if (env.IMAGE_PUSHED == 'true' && env.GITOPS_UPDATED != 'true' && env.IMAGE_TAG) {
+                    echo "Pipeline failed before GitOps update. Removing image ${env.IMAGE_TAG} from ECR."
+
+                    container('aws') {
+                        sh 'aws ecr batch-delete-image --region ${AWS_REGION} --repository-name ${ECR_REPO} --image-ids imageTag=${IMAGE_TAG} || true'
+                    }
+                }
+            }
         }
     }
 }
