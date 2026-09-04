@@ -113,14 +113,6 @@ pipeline {
             }
         }
 
-        stage('Wait for Docker') {
-            steps {
-                container('docker') {
-                    sh 'until docker info >/dev/null 2>&1; do echo "Waiting for Docker daemon..."; sleep 2; done'
-                }
-            }
-        }
-
         stage('Docker Build & Push') {
             steps {
                 container('docker') {
