@@ -7,6 +7,10 @@ pipeline {
         }
     }
 
+    triggers {
+        githubPush()
+    }
+
     environment {
         AWS_REGION = 'ap-northeast-2'
         ECR_REPO = 'wsc-cicd-repo'
@@ -86,10 +90,10 @@ pipeline {
         stage('Docker Build & Push') {
             steps {
                 sh '''
-aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-docker build -t ${DOCKER_IMAGE} .
-docker push ${DOCKER_IMAGE}
-'''
+                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                docker build -t ${DOCKER_IMAGE} .
+                docker push ${DOCKER_IMAGE}
+                '''
             }
         }
 
@@ -97,24 +101,24 @@ docker push ${DOCKER_IMAGE}
             steps {
                 withCredentials([usernamePassword(credentialsId: env.GITHUB_CRED_ID, usernameVariable: 'G_USER', passwordVariable: 'G_TOKEN')]) {
                     sh '''
-rm -rf ${MANIFEST_REPO}
-git clone --branch ${MAIN_BRANCH} https://${G_USER}:${G_TOKEN}@github.com/${G_USER}/${MANIFEST_REPO}.git
-cd ${MANIFEST_REPO}
+                    rm -rf ${MANIFEST_REPO}
+                    git clone --branch ${MAIN_BRANCH} https://${G_USER}:${G_TOKEN}@github.com/${G_USER}/${MANIFEST_REPO}.git
+                    cd ${MANIFEST_REPO}
 
-sed -i "s|image: .*wsc-cicd-repo:.*|image: ${DOCKER_IMAGE}|g" ${MANIFEST_FILE}
+                    sed -i "s|image: .*wsc-cicd-repo:.*|image: ${DOCKER_IMAGE}|g" ${MANIFEST_FILE}
 
-git config user.email "jenkins@localhost"
-git config user.name "jenkins"
+                    git config user.email "jenkins@localhost"
+                    git config user.name "jenkins"
 
-git add ${MANIFEST_FILE}
+                    git add ${MANIFEST_FILE}
 
-if ! git diff --cached --quiet; then
-    git commit -m "Deploy application ${IMAGE_TAG}"
-    git push origin ${MAIN_BRANCH}
-else
-    echo "No changes detected in manifest."
-fi
-'''
+                    if ! git diff --cached --quiet; then
+                        git commit -m "Deploy application ${IMAGE_TAG}"
+                        git push origin ${MAIN_BRANCH}
+                    else
+                        echo "No changes detected in manifest."
+                    fi
+                    '''
                 }
             }
         }
