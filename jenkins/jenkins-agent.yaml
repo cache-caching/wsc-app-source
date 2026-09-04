@@ -22,6 +22,16 @@ spec:
       args:
         - --host=tcp://0.0.0.0:2375
         - --tls=false
+      readinessProbe:
+        exec:
+          command:
+            - docker
+            - info
+        initialDelaySeconds: 3
+        periodSeconds: 2
+        timeoutSeconds: 2
+        failureThreshold: 30
+
     - name: aws
       image: amazon/aws-cli:latest
       command:
