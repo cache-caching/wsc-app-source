@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: wsc-jenkins-agent-sa
+  nodeSelector:
+    dedicated: wsc-cicd
+  containers:
+    - name: docker
+      image: docker:27-cli
+      command:
+        - sleep
+      args:
+        - infinity
+      env:
+        - name: DOCKER_HOST
+          value: tcp://localhost:2375
+
+    - name: docker-daemon
+      image: docker:27-dind
+      securityContext:
+        privileged: true
+      args:
+        - --host=tcp://0.0.0.0:2375
+        - --tls=false
+    - name: aws
+      image: amazon/aws-cli:latest
+      command:
+        - sleep
+      args:
+        - infinity

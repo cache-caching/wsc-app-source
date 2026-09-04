@@ -1,15 +1,21 @@
 pipeline {
-    agent any
+    agent {
+        kubernetes {
+            label 'wsc-jenkins-agent'
+            defaultContainer 'agent'
+            yamlFile 'jenkins/jenkins-agent.yaml'
+        }
+    }
 
     environment {
-        AWS_REGION      = 'ap-northeast-2'
-        ECR_REPO        = 'wsc-cicd-repo'
+        AWS_REGION = 'ap-northeast-2'
+        ECR_REPO = 'wsc-cicd-repo'
 
-        GITHUB_CRED_ID  = 'github'
-        MANIFEST_REPO   = 'wsc-cicd-gitops'
-        MAIN_BRANCH     = 'main'
+        GITHUB_CRED_ID = 'wsc-github-credentials'
+        MANIFEST_REPO = 'wsc-app-gitops'
+        MAIN_BRANCH = 'main'
 
-        MANIFEST_FILE   = 'rollout.yaml'
+        MANIFEST_FILE = 'manifests/rollout.yaml'
     }
 
     stages {
@@ -22,11 +28,7 @@ pipeline {
         stage('Get AWS Account ID') {
             steps {
                 script {
-                    def accountId = sh(
-                        script: "aws sts get-caller-identity --query Account --output text",
-                        returnStdout: true
-                    ).trim()
-                    
+                    def accountId = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
                     env.AWS_ACCOUNT_ID = accountId
                     env.ECR_REGISTRY = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
                     echo "AWS Account ID: ${env.AWS_ACCOUNT_ID}"
@@ -34,13 +36,16 @@ pipeline {
             }
         }
 
+        stage('Wait for Docker') {
+            steps {
+                sh 'until docker info >/dev/null 2>&1; do echo "Waiting for Docker daemon..."; sleep 2; done'
+            }
+        }
+
         stage('Determine Next Image Tag') {
             steps {
                 script {
-                    def stdout = sh(
-                        script: "aws ecr list-images --region ${env.AWS_REGION} --repository-name ${env.ECR_REPO} --query 'imageIds[*].imageTag' --output text",
-                        returnStdout: true
-                    ).trim()
+                    def stdout = sh(script: "aws ecr list-images --region ${env.AWS_REGION} --repository-name ${env.ECR_REPO} --query 'imageIds[*].imageTag' --output text", returnStdout: true).trim()
 
                     if (!stdout || stdout == 'None' || stdout == 'null' || stdout.isEmpty()) {
                         env.IMAGE_TAG = 'v1.0.0'
@@ -50,10 +55,12 @@ pipeline {
                         def versions = existingTags.findAll { it ==~ semverPattern }
 
                         if (versions) {
-                            def maxVersion = [0,0,0]
+                            def maxVersion = [0, 0, 0]
+
                             versions.each { ver ->
-                                def parts = ver.replaceAll('v','').split('\\.').collect { it.toInteger() }
-                                for (int i=0; i<3; i++) {
+                                def parts = ver.replaceAll('v', '').split('\\.').collect { it.toInteger() }
+
+                                for (int i = 0; i < 3; i++) {
                                     if (parts[i] > maxVersion[i]) {
                                         maxVersion = parts
                                         break
@@ -62,6 +69,7 @@ pipeline {
                                     }
                                 }
                             }
+
                             maxVersion[2] += 1
                             env.IMAGE_TAG = "v${maxVersion.join('.')}"
                         } else {
@@ -77,41 +85,36 @@ pipeline {
 
         stage('Docker Build & Push') {
             steps {
-                script {
-                    sh """
-                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                    docker build -t ${DOCKER_IMAGE} .
-                    docker push ${DOCKER_IMAGE}
-                    """
-                }
+                sh '''
+aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+docker build -t ${DOCKER_IMAGE} .
+docker push ${DOCKER_IMAGE}
+'''
             }
         }
 
         stage('Update GitOps Manifest') {
             steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: env.GITHUB_CRED_ID, usernameVariable: 'G_USER', passwordVariable: 'G_TOKEN')]) {
-                        sh """
-                        rm -rf ${MANIFEST_REPO}
-                        git clone https://${G_USER}:${G_TOKEN}@github.com/${G_USER}/${MANIFEST_REPO}.git
-                        
-                        cd ${MANIFEST_REPO}
-                        
-                        sed -i "s|image:.*|image: ${DOCKER_IMAGE}|g" ${MANIFEST_FILE}
-                        
-                        git config user.email "jenkins@localhost"
-                        git config user.name "jenkins"
-                        
-                        git add ${MANIFEST_FILE}
+                withCredentials([usernamePassword(credentialsId: env.GITHUB_CRED_ID, usernameVariable: 'G_USER', passwordVariable: 'G_TOKEN')]) {
+                    sh '''
+rm -rf ${MANIFEST_REPO}
+git clone --branch ${MAIN_BRANCH} https://${G_USER}:${G_TOKEN}@github.com/${G_USER}/${MANIFEST_REPO}.git
+cd ${MANIFEST_REPO}
 
-                        if ! git diff-index --quiet HEAD; then
-                            git commit -m "chore: update image to ${IMAGE_TAG} [skip ci]"
-                            git push origin ${MAIN_BRANCH}
-                        else
-                            echo "No changes detected in manifest."
-                        fi
-                        """
-                    }
+sed -i "s|image: .*wsc-cicd-repo:.*|image: ${DOCKER_IMAGE}|g" ${MANIFEST_FILE}
+
+git config user.email "jenkins@localhost"
+git config user.name "jenkins"
+
+git add ${MANIFEST_FILE}
+
+if ! git diff --cached --quiet; then
+    git commit -m "Deploy application ${IMAGE_TAG}"
+    git push origin ${MAIN_BRANCH}
+else
+    echo "No changes detected in manifest."
+fi
+'''
                 }
             }
         }
@@ -119,10 +122,11 @@ pipeline {
 
     post {
         success {
-            echo "Successfully deployed ${env.DOCKER_IMAGE}"
+            echo "Image pushed and GitOps manifest updated: ${env.DOCKER_IMAGE}"
         }
+
         always {
-            sh "docker rmi ${env.DOCKER_IMAGE} || true"
+            sh 'docker rmi ${DOCKER_IMAGE} >/dev/null 2>&1 || true'
             cleanWs()
         }
     }
