@@ -2,10 +2,8 @@ apiVersion: v1
 kind: Pod
 spec:
   serviceAccountName: jenkins-agent-sa
-
   nodeSelector:
     dedicated: wsc-cicd
-
   containers:
     - name: docker
       image: docker:27-cli
@@ -18,7 +16,6 @@ spec:
           value: tcp://127.0.0.1:2375
         - name: DOCKER_TLS_CERTDIR
           value: ""
-
     - name: docker-daemon
       image: docker:27-dind
       securityContext:
@@ -38,7 +35,6 @@ spec:
         periodSeconds: 2
         timeoutSeconds: 2
         failureThreshold: 30
-
     - name: aws
       image: amazon/aws-cli:latest
       command:

@@ -141,7 +141,7 @@ pipeline {
 
                         cd ${MANIFEST_REPO}
 
-                        sed -i "s|image: .*wsc-cicd-repo:.*|image: ${DOCKER_IMAGE}|g" ${MANIFEST_FILE}
+                        sed -i "s|image:.*|image: ${DOCKER_IMAGE}|g" ${MANIFEST_FILE}
 
                         git config user.email "jenkins@localhost"
                         git config user.name "jenkins"
