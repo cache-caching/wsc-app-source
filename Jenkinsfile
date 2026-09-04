@@ -7,10 +7,6 @@ pipeline {
         }
     }
 
-    triggers {
-        githubPush()
-    }
-
     environment {
         AWS_REGION = 'ap-northeast-2'
         ECR_REPO = 'wsc-cicd-repo'
